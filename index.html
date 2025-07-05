@@ -11,13 +11,21 @@
         body {
             font-family: "Inter", sans-serif;
         }
+        /* Style untuk modal */
+        .modal-overlay {
+            background-color: rgba(0, 0, 0, 0.5);
+            z-index: 100;
+        }
+        .modal-content {
+            z-index: 101;
+        }
     </style>
     <!-- Firebase SDKs via CDN - Pastikan versi terbaru digunakan -->
     <script type="module">
         // Import modul Firebase yang dibutuhkan
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, query, onSnapshot, Timestamp, addDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, collection, query, onSnapshot, Timestamp, addDoc, deleteDoc, doc, where, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // Konfigurasi Firebase Anda - PASTIKAN INI BENAR DAN SESUAI DENGAN PROYEK ANDA
         // Anda bisa mendapatkan ini dari pengaturan proyek Firebase Anda (Project settings -> Your apps -> Firebase SDK snippet -> Config)
@@ -44,7 +52,7 @@
 
         // Email admin yang diharapkan - PASTIKAN INI SAMA PERSIS DENGAN EMAIL ANDA DI FIREBASE AUTHENTICATION
         // Contoh: 'Admin1122@gmail.com'
-        const ADMIN_EMAIL = 'Admin1122@gmail.com'; 
+        const ADMIN_EMAIL = 'Admin1122@gmail.com';
 
         // Path koleksi Firestore untuk data absensi publik
         // Menggunakan __app_id jika tersedia, jika tidak, fallback ke currentAppId dari firebaseConfig
@@ -56,7 +64,7 @@
             const messageBox = document.getElementById('messageBox');
             messageBox.textContent = message;
             // Reset kelas sebelum menambahkan yang baru untuk menghindari penumpukan
-            messageBox.className = `p-3 rounded-lg text-white font-medium mb-4 fixed top-4 right-4 shadow-lg z-50`; 
+            messageBox.className = `p-3 rounded-lg text-white font-medium mb-4 fixed top-4 right-4 shadow-lg z-50`;
             messageBox.classList.remove('hidden'); // Pastikan tidak tersembunyi
             if (type === 'error') {
                 messageBox.classList.add('bg-red-500');
@@ -65,11 +73,11 @@
             } else {
                 messageBox.classList.add('bg-blue-500');
             }
-            
+
             // Sembunyikan pesan setelah 5 detik
             setTimeout(() => {
                 messageBox.classList.add('hidden');
-            }, 5000); 
+            }, 5000);
         }
 
         // Fungsi untuk menampilkan halaman login
@@ -88,10 +96,10 @@
             document.getElementById('loadingScreen').classList.add('hidden');
             document.getElementById('loginPage').classList.add('hidden');
             document.getElementById('adminDashboard').classList.remove('hidden');
-            
+
             // Tampilkan UID user admin yang sedang login
             document.getElementById('adminUserIdDisplay').textContent = currentUser?.uid || 'Tidak Diketahui';
-            
+
             // Muat dan tampilkan data absensi di tabel
             loadAttendanceRecords();
         }
@@ -103,26 +111,26 @@
             const loginError = document.getElementById('loginError');
             const loginButton = document.getElementById('loginButton');
 
-            loginError.textContent = ''; 
+            loginError.textContent = '';
             loginButton.disabled = true;
             loginButton.textContent = 'Memuat...';
 
             try {
                 const userCredential = await signInWithEmailAndPassword(auth, email, password);
                 currentUser = userCredential.user; // Set currentUser setelah login berhasil
-                
+
                 // --- DEBUGGING LOGS ---
                 console.log("Email yang login (dari Firebase):", currentUser.email);
                 console.log("Email admin yang diharapkan (dari kode):", ADMIN_EMAIL);
-                console.log("Perbandingan (case-insensitive & trim):", 
-                            currentUser.email.trim().toLowerCase() === ADMIN_EMAIL.trim().toLowerCase());
+                console.log("Perbandingan (case-insensitive & trim):",
+                                currentUser.email.trim().toLowerCase() === ADMIN_EMAIL.trim().toLowerCase());
                 // --- END DEBUGGING LOGS ---
 
                 // Periksa apakah email yang login adalah email admin yang diharapkan
                 // Gunakan .trim() untuk menghapus spasi di awal/akhir dan .toLowerCase() untuk perbandingan case-insensitive
                 if (currentUser.email.trim().toLowerCase() === ADMIN_EMAIL.trim().toLowerCase()) {
                     renderAdminDashboard(); // Jika admin, tampilkan dashboard
-                    showMessage('Login berhasil!', 'success'); 
+                    showMessage('Login berhasil!', 'success');
                 } else {
                     // Jika bukan admin, paksa logout dan tampilkan pesan
                     await signOut(auth);
@@ -162,7 +170,7 @@
         // Fungsi untuk menambahkan catatan absensi baru (simulasi absensi)
         async function handleAddAttendance() {
             // Pastikan user sudah login dan emailnya adalah email admin yang diharapkan
-            if (!db || !currentUser || currentUser.email.trim().toLowerCase() !== ADMIN_EMAIL.trim().toLowerCase()) { 
+            if (!db || !currentUser || currentUser.email.trim().toLowerCase() !== ADMIN_EMAIL.trim().toLowerCase()) {
                 console.error("Akses ditolak atau Database/User belum siap.");
                 showMessage('Akses ditolak atau Anda bukan admin yang berwenang.', 'error');
                 return;
@@ -174,7 +182,7 @@
             try {
                 const now = new Date();
                 const newRecord = {
-                    userId: currentUser.uid, 
+                    userId: currentUser.uid,
                     timestamp: Timestamp.fromDate(now),
                     dateString: now.toLocaleDateString('id-ID', { year: 'numeric', month: 'long', day: 'numeric' }),
                     timeString: now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
@@ -182,7 +190,7 @@
                 };
                 await addDoc(collection(db, attendanceCollectionPath), newRecord);
                 console.log("Absensi baru ditambahkan!");
-                showMessage('Absensi baru berhasil ditambahkan!', 'success'); 
+                showMessage('Absensi baru berhasil ditambahkan!', 'success');
             } catch (error) {
                 console.error("Gagal menambahkan absensi:", error);
                 showMessage('Gagal menambahkan absensi.', 'error');
@@ -199,10 +207,10 @@
             const loadingAttendanceMessage = document.getElementById('loadingAttendanceMessage');
 
             loadingAttendanceMessage.classList.remove('hidden');
-            attendanceTableBody.innerHTML = ''; 
+            attendanceTableBody.innerHTML = '';
 
             // Pastikan user sudah login dan emailnya adalah email admin yang diharapkan
-            if (!db || !currentUser || currentUser.email.trim().toLowerCase() !== ADMIN_EMAIL.trim().toLowerCase()) { 
+            if (!db || !currentUser || currentUser.email.trim().toLowerCase() !== ADMIN_EMAIL.trim().toLowerCase()) {
                 console.error("Akses ditolak atau Database/User belum siap untuk memuat catatan absensi.");
                 loadingAttendanceMessage.classList.add('hidden');
                 noRecordsMessage.classList.remove('hidden');
@@ -211,7 +219,7 @@
             }
 
             const q = query(collection(db, attendanceCollectionPath));
-            
+
             // Set up listener real-time menggunakan onSnapshot
             // Penting: onSnapshot mengembalikan fungsi unsubscribe. Simpan ini jika Anda perlu menghentikan mendengarkan.
             const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -225,7 +233,7 @@
                 // Urutkan catatan berdasarkan timestamp terbaru di atas
                 records.sort((a, b) => b.timestamp.toDate() - a.timestamp.toDate());
 
-                attendanceTableBody.innerHTML = ''; 
+                attendanceTableBody.innerHTML = '';
                 if (records.length === 0) {
                     noRecordsMessage.classList.remove('hidden');
                     noRecordsMessage.textContent = 'Belum ada catatan absensi.';
@@ -264,6 +272,77 @@
             return unsubscribe;
         }
 
+        // Fungsi untuk menampilkan modal konfirmasi
+        function showConfirmationModal(message, onConfirm) {
+            document.getElementById('confirmationMessage').textContent = message;
+            document.getElementById('confirmButton').onclick = () => {
+                onConfirm();
+                hideConfirmationModal();
+            };
+            document.getElementById('cancelButton').onclick = hideConfirmationModal;
+            document.getElementById('confirmationModal').classList.remove('hidden');
+        }
+
+        // Fungsi untuk menyembunyikan modal konfirmasi
+        function hideConfirmationModal() {
+            document.getElementById('confirmationModal').classList.add('hidden');
+        }
+
+        // Fungsi untuk menangani penghapusan riwayat berdasarkan tanggal
+        async function handleDeleteByDate() {
+            const deleteDateInput = document.getElementById('deleteDateInput');
+            const selectedDate = deleteDateInput.value; // Format: YYYY-MM-DD
+
+            if (!selectedDate) {
+                showMessage('Pilih tanggal yang ingin dihapus.', 'error');
+                return;
+            }
+
+            // Konversi tanggal yang dipilih ke format 'id-ID' untuk perbandingan dengan dateString di Firestore
+            const dateParts = selectedDate.split('-'); // [YYYY, MM, DD]
+            const dateObj = new Date(dateParts[0], dateParts[1] - 1, dateParts[2]); // MM is 0-indexed
+            const formattedDateForComparison = dateObj.toLocaleDateString('id-ID', { year: 'numeric', month: 'long', day: 'numeric' });
+
+            showConfirmationModal(`Apakah Anda yakin ingin menghapus semua catatan absensi pada tanggal ${formattedDateForComparison}?`, async () => {
+                // Pastikan user sudah login dan emailnya adalah email admin yang diharapkan
+                if (!db || !currentUser || currentUser.email.trim().toLowerCase() !== ADMIN_EMAIL.trim().toLowerCase()) {
+                    console.error("Akses ditolak atau Database/User belum siap untuk menghapus.");
+                    showMessage('Akses ditolak atau Anda bukan admin yang berwenang.', 'error');
+                    return;
+                }
+
+                const deleteButton = document.getElementById('deleteByDateButton');
+                deleteButton.disabled = true;
+                deleteButton.textContent = 'Menghapus...';
+
+                try {
+                    const q = query(collection(db, attendanceCollectionPath), where("dateString", "==", formattedDateForComparison));
+                    const querySnapshot = await getDocs(q);
+
+                    if (querySnapshot.empty) {
+                        showMessage(`Tidak ada catatan absensi ditemukan pada tanggal ${formattedDateForComparison}.`, 'info');
+                        console.log(`Tidak ada catatan absensi ditemukan pada tanggal ${formattedDateForComparison}.`);
+                        return;
+                    }
+
+                    let deletedCount = 0;
+                    for (const docSnapshot of querySnapshot.docs) {
+                        await deleteDoc(doc(db, attendanceCollectionPath, docSnapshot.id));
+                        deletedCount++;
+                    }
+                    showMessage(`${deletedCount} catatan absensi pada tanggal ${formattedDateForComparison} berhasil dihapus!`, 'success');
+                    console.log(`${deletedCount} catatan absensi pada tanggal ${formattedDateForComparison} berhasil dihapus.`);
+                } catch (error) {
+                    console.error("Gagal menghapus catatan absensi:", error);
+                    showMessage('Gagal menghapus catatan absensi.', 'error');
+                } finally {
+                    deleteButton.disabled = false;
+                    deleteButton.textContent = 'Hapus Riwayat Tanggal Ini';
+                }
+            });
+        }
+
+
         // Fungsi yang dijalankan setelah seluruh DOM dimuat
         window.onload = async () => {
             document.getElementById('loadingScreen').classList.remove('hidden'); // Tampilkan loading awal
@@ -277,7 +356,7 @@
             } catch (e) {
                 console.warn("Tidak ada sesi aktif untuk di-logout atau error saat logout:", e);
             }
-            
+
             // Selalu tampilkan halaman login terlebih dahulu
             renderLoginPage();
 
@@ -285,6 +364,7 @@
             document.getElementById('loginButton').addEventListener('click', handleLogin);
             document.getElementById('logoutButton').addEventListener('click', handleLogout);
             document.getElementById('addAttendanceButton').addEventListener('click', handleAddAttendance);
+            document.getElementById('deleteByDateButton').addEventListener('click', handleDeleteByDate);
         };
     </script>
 </head>
@@ -354,6 +434,27 @@
             </p>
         </div>
 
+        <!-- Bagian Hapus Riwayat Berdasarkan Tanggal -->
+        <div class="mb-6 bg-red-50 p-4 rounded-lg border border-red-200">
+            <h3 class="text-xl font-bold text-red-700 mb-3">Hapus Riwayat Absensi Berdasarkan Tanggal</h3>
+            <div class="flex flex-col sm:flex-row gap-3 items-center">
+                <input
+                    type="date"
+                    id="deleteDateInput"
+                    class="w-full sm:w-auto p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent transition duration-200"
+                />
+                <button
+                    id="deleteByDateButton"
+                    class="w-full sm:w-auto bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded-lg shadow-md transition-all duration-300 transform hover:-translate-y-0.5 focus:outline-none focus:ring-4 focus:ring-red-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    Hapus Riwayat Tanggal Ini
+                </button>
+            </div>
+            <p class="text-sm text-gray-500 mt-2">
+                Pilih tanggal untuk menghapus semua catatan absensi pada tanggal tersebut.
+            </p>
+        </div>
+
         <h3 class="text-2xl font-bold text-gray-700 mb-4">Catatan Absensi</h3>
         <p id="loadingAttendanceMessage" class="text-gray-600 text-lg hidden">Memuat data absensi...</p>
         <p id="noRecordsMessage" class="text-gray-600 text-lg hidden">Belum ada catatan absensi.</p>
@@ -382,6 +483,21 @@
             </table>
           </div>
       </div>
+    </div>
+
+    <!-- Modal Konfirmasi (Custom, pengganti alert/confirm) -->
+    <div id="confirmationModal" class="hidden fixed inset-0 flex items-center justify-center modal-overlay">
+        <div class="bg-white p-6 rounded-lg shadow-xl modal-content max-w-sm w-full mx-4">
+            <p id="confirmationMessage" class="text-lg font-semibold text-gray-800 mb-6 text-center"></p>
+            <div class="flex justify-around gap-4">
+                <button id="cancelButton" class="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded-lg transition duration-200">
+                    Batal
+                </button>
+                <button id="confirmButton" class="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition duration-200">
+                    Hapus
+                </button>
+            </div>
+        </div>
     </div>
 
 </body>
