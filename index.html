@@ -1,331 +1,355 @@
-import React, { useState, useEffect, createContext, useContext } from 'react';
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, signInAnonymously } from 'firebase/auth';
-import { getFirestore, collection, query, onSnapshot, Timestamp, addDoc } from 'firebase/firestore';
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Absensi Admin Firebase</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Firebase SDKs via CDN -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, query, onSnapshot, Timestamp, addDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-// 1. Inisialisasi Firebase dan Konteks Otentikasi
-// Konfigurasi Firebase Anda yang sudah terintegrasi
-const firebaseConfig = {
-  apiKey: "AIzaSyDVdSSeAlhK1sgjyeSLSdNW3zesatzPKDE",
-  authDomain: "data-absen-2025.firebaseapp.com",
-  projectId: "data-absen-2025",
-  storageBucket: "data-absen-2025.firebasestorage.app",
-  messagingSenderId: "771101147789",
-  appId: "1:771101147789:web:955049d4939500cfe4d8c4",
-  measurementId: "G-H0S4BS3M50"
-};
+        // Konfigurasi Firebase Anda
+        const firebaseConfig = {
+          apiKey: "AIzaSyDVdSSeAlhK1sgjyeSLSdNW3zesatzPKDE",
+          authDomain: "data-absen-2025.firebaseapp.com",
+          projectId: "data-absen-2025",
+          storageBucket: "data-absen-2025.firebasestorage.app",
+          messagingSenderId: "771101147789",
+          appId: "1:771101147789:web:955049d4939500cfe4d8c4",
+          measurementId: "G-H0S4BS3M50"
+        };
 
-const appId = "1:771101147789:web:955049d4939500cfe4d8c4"; // Ini adalah appId dari konfigurasi Anda
+        const currentAppId = "1:771101147789:web:955049d4939500cfe4d8c4"; // appId dari konfigurasi Anda
 
-// Buat konteks untuk otentikasi Firebase
-const AuthContext = createContext(null);
+        // Inisialisasi Firebase
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
 
-// Komponen penyedia otentikasi
-function AuthProvider({ children }) {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [db, setDb] = useState(null);
-  const [auth, setAuth] = useState(null);
+        // Variabel global untuk user yang sedang login
+        let currentUser = null;
 
-  useEffect(() => {
-    // Inisialisasi Firebase hanya sekali saat komponen dimuat
-    const app = initializeApp(firebaseConfig);
-    const firestoreDb = getFirestore(app);
-    const firebaseAuth = getAuth(app);
+        // Path koleksi untuk data absensi publik
+        const attendanceCollectionPath = `artifacts/${currentAppId}/public/data/attendanceRecords`;
 
-    setDb(firestoreDb);
-    setAuth(firebaseAuth);
-
-    // Otentikasi awal menggunakan token kustom atau anonim
-    const authenticate = async () => {
-      try {
-        // Menggunakan __initial_auth_token jika tersedia, jika tidak, sign in anonim
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(firebaseAuth, __initial_auth_token);
-        } else {
-          await signInAnonymously(firebaseAuth);
+        // Fungsi untuk menampilkan pesan (pengganti alert)
+        function showMessage(message, type = 'info') {
+            const messageBox = document.getElementById('messageBox');
+            messageBox.textContent = message;
+            messageBox.className = `p-3 rounded-lg text-white font-medium mb-4 ${type === 'error' ? 'bg-red-500' : 'bg-blue-500'}`;
+            messageBox.classList.remove('hidden');
+            setTimeout(() => {
+                messageBox.classList.add('hidden');
+            }, 5000); // Sembunyikan setelah 5 detik
         }
-      } catch (error) {
-        console.error("Gagal otentikasi awal:", error);
-      }
-    };
 
-    authenticate();
+        // Fungsi untuk merender halaman login
+        function renderLoginPage() {
+            document.getElementById('loadingScreen').classList.add('hidden');
+            document.getElementById('loginPage').classList.remove('hidden');
+            document.getElementById('adminDashboard').classList.add('hidden');
+        }
 
-    // Listener perubahan status otentikasi
-    const unsubscribe = onAuthStateChanged(firebaseAuth, (currentUser) => {
-      setUser(currentUser);
-      setLoading(false);
-    });
+        // Fungsi untuk merender dashboard admin
+        function renderAdminDashboard() {
+            document.getElementById('loadingScreen').classList.add('hidden');
+            document.getElementById('loginPage').classList.add('hidden');
+            document.getElementById('adminDashboard').classList.remove('hidden');
+            
+            // Tampilkan UID user yang sedang login
+            document.getElementById('adminUserIdDisplay').textContent = currentUser?.uid || 'Tidak Diketahui';
+            
+            // Ambil dan tampilkan data absensi
+            loadAttendanceRecords();
+        }
 
-    // Cleanup listener saat komponen dilepas
-    return () => unsubscribe();
-  }, []); // Dependensi kosong agar hanya berjalan sekali
+        // Fungsi untuk menangani login admin
+        async function handleLogin() {
+            const email = document.getElementById('emailInput').value;
+            const password = document.getElementById('passwordInput').value;
+            const loginError = document.getElementById('loginError');
+            const loginButton = document.getElementById('loginButton');
 
-  // Menyediakan nilai konteks
-  return (
-    <AuthContext.Provider value={{ user, loading, db, auth, appId }}>
-      {!loading && children}
-      {loading && (
-        <div className="flex items-center justify-center min-h-screen bg-gray-100">
-          <div className="text-gray-700 text-lg font-semibold">Memuat aplikasi...</div>
-        </div>
-      )}
-    </AuthContext.Provider>
-  );
-}
+            loginError.textContent = ''; // Bersihkan pesan error sebelumnya
+            loginButton.disabled = true;
+            loginButton.textContent = 'Memuat...';
 
-// Hook kustom untuk menggunakan konteks otentikasi
-function useAuth() {
-  return useContext(AuthContext);
-}
+            try {
+                await signInWithEmailAndPassword(auth, email, password);
+                // onAuthStateChanged akan menangani rendering dashboard
+            } catch (error) {
+                console.error("Kesalahan login:", error.message);
+                loginError.textContent = 'Gagal login. Periksa email dan kata sandi Anda.';
+                showMessage('Gagal login. Periksa email dan kata sandi Anda.', 'error');
+            } finally {
+                loginButton.disabled = false;
+                loginButton.textContent = 'Login';
+            }
+        }
 
-// 2. Komponen Halaman Login Admin
-function LoginPage() {
-  const { auth } = useAuth();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+        // Fungsi untuk menangani logout
+        async function handleLogout() {
+            try {
+                await signOut(auth);
+                // onAuthStateChanged akan menangani rendering halaman login
+            } catch (error) {
+                console.error("Kesalahan logout:", error);
+                showMessage('Gagal logout.', 'error');
+            }
+        }
 
-  const handleLogin = async () => {
-    setError('');
-    setLoading(true);
-    try {
-      if (!auth) {
-        throw new Error("Firebase Auth belum diinisialisasi.");
-      }
-      await signInWithEmailAndPassword(auth, email, password);
-    } catch (err) {
-      console.error("Kesalahan login:", err.message);
-      setError('Gagal login. Periksa email dan kata sandi Anda.');
-      // Instruksi untuk demo user
-    } finally {
-      setLoading(false);
-    }
-  };
+        // Fungsi untuk menambahkan catatan absensi baru (simulasi)
+        async function handleAddAttendance() {
+            if (!db || !currentUser) {
+                console.error("Database atau User belum siap untuk menambahkan absensi.");
+                showMessage('Gagal menambahkan absensi: Database atau user belum siap.', 'error');
+                return;
+            }
+            const addAttendanceButton = document.getElementById('addAttendanceButton');
+            addAttendanceButton.disabled = true;
+            addAttendanceButton.textContent = 'Menambahkan...';
 
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-500 to-purple-600 p-4">
-      <div className="bg-white p-8 rounded-xl shadow-2xl w-full max-w-sm text-center transform transition-all duration-300 hover:scale-105">
-        <h2 className="text-3xl font-extrabold text-gray-800 mb-6">Login Admin</h2>
-        {error && <p className="text-red-600 mb-4 font-medium">{error}</p>}
-        <div className="mb-4">
+            try {
+                const now = new Date();
+                const newRecord = {
+                    userId: currentUser.uid, // Menggunakan UID admin sebagai contoh user yang absen
+                    timestamp: Timestamp.fromDate(now), // Timestamp Firebase
+                    dateString: now.toLocaleDateString('id-ID', { year: 'numeric', month: 'long', day: 'numeric' }),
+                    timeString: now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+                    simulatedLocation: "Sore Arabica" // Contoh lokasi
+                };
+                await addDoc(collection(db, attendanceCollectionPath), newRecord);
+                console.log("Absensi baru ditambahkan!");
+                showMessage('Absensi baru berhasil ditambahkan!', 'info');
+            } catch (error) {
+                console.error("Gagal menambahkan absensi:", error);
+                showMessage('Gagal menambahkan absensi.', 'error');
+            } finally {
+                addAttendanceButton.disabled = false;
+                addAttendanceButton.textContent = 'Simulasikan Absensi Baru';
+            }
+        }
+
+        // Fungsi untuk memuat dan menampilkan catatan absensi
+        function loadAttendanceRecords() {
+            const attendanceTableBody = document.getElementById('attendanceTableBody');
+            const noRecordsMessage = document.getElementById('noRecordsMessage');
+            const loadingAttendanceMessage = document.getElementById('loadingAttendanceMessage');
+
+            loadingAttendanceMessage.classList.remove('hidden');
+            attendanceTableBody.innerHTML = ''; // Bersihkan tabel
+
+            if (!db || !currentUser) {
+                console.error("Database atau user belum siap untuk memuat catatan absensi.");
+                loadingAttendanceMessage.classList.add('hidden');
+                noRecordsMessage.classList.remove('hidden');
+                noRecordsMessage.textContent = 'Gagal memuat catatan absensi.';
+                return;
+            }
+
+            const q = query(collection(db, attendanceCollectionPath));
+            onSnapshot(q, (snapshot) => {
+                const records = [];
+                snapshot.forEach(doc => {
+                    records.push({
+                        id: doc.id,
+                        ...doc.data()
+                    });
+                });
+                // Urutkan berdasarkan timestamp terbaru
+                records.sort((a, b) => b.timestamp.toDate() - a.timestamp.toDate());
+
+                attendanceTableBody.innerHTML = ''; // Bersihkan lagi sebelum mengisi
+                if (records.length === 0) {
+                    noRecordsMessage.classList.remove('hidden');
+                    noRecordsMessage.textContent = 'Belum ada catatan absensi.';
+                } else {
+                    noRecordsMessage.classList.add('hidden');
+                    records.forEach(record => {
+                        const row = `
+                            <tr class="hover:bg-gray-50">
+                                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                    ${record.dateString}
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                    ${record.timeString}
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700 break-all">
+                                    ${record.userId}
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                    ${record.simulatedLocation || '-'}
+                                </td>
+                            </tr>
+                        `;
+                        attendanceTableBody.insertAdjacentHTML('beforeend', row);
+                    });
+                }
+                loadingAttendanceMessage.classList.add('hidden');
+            }, (error) => {
+                console.error("Kesalahan real-time data absensi:", error);
+                loadingAttendanceMessage.classList.add('hidden');
+                noRecordsMessage.classList.remove('hidden');
+                noRecordsMessage.textContent = 'Gagal memuat data absensi secara real-time.';
+                showMessage('Gagal memuat data absensi secara real-time.', 'error');
+            });
+        }
+
+        // Listener perubahan status otentikasi Firebase
+        onAuthStateChanged(auth, async (user) => {
+            currentUser = user; // Perbarui variabel global currentUser
+            if (user) {
+                // Jika ada user yang login (termasuk anonim atau dengan token kustom)
+                // Kita perlu memastikan ini adalah user admin yang kita inginkan
+                // Untuk demo ini, kita akan langsung menampilkan dashboard jika ada user
+                // Dalam aplikasi nyata, Anda mungkin perlu memeriksa role/klaim khusus
+                renderAdminDashboard();
+            } else {
+                // Jika tidak ada user yang login, tampilkan halaman login
+                renderLoginPage();
+            }
+        });
+
+        // Inisialisasi aplikasi saat DOM dimuat
+        window.onload = async () => {
+            document.getElementById('loadingScreen').classList.remove('hidden');
+
+            // Coba otentikasi awal dengan token kustom jika tersedia
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                try {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } catch (error) {
+                    console.error("Gagal otentikasi dengan token kustom:", error);
+                    // Jika gagal, biarkan onAuthStateChanged mengarahkan ke login
+                }
+            } else {
+                // Jika tidak ada token kustom, coba sign in anonim
+                try {
+                    await signInAnonymously(auth);
+                } catch (error) {
+                    console.error("Gagal sign in anonim:", error);
+                    // Biarkan onAuthStateChanged mengarahkan ke login
+                }
+            }
+
+            // Tambahkan event listener setelah elemen ada di DOM
+            document.getElementById('loginButton').addEventListener('click', handleLogin);
+            document.getElementById('logoutButton').addEventListener('click', handleLogout);
+            document.getElementById('addAttendanceButton').addEventListener('click', handleAddAttendance);
+        };
+    </script>
+    <style>
+        /* Custom font for a clean look */
+        body {
+            font-family: "Inter", sans-serif;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-blue-500 to-purple-600 min-h-screen flex items-center justify-center p-4">
+
+    <!-- Layar Loading Awal -->
+    <div id="loadingScreen" class="absolute inset-0 flex items-center justify-center bg-gray-100 z-50 hidden">
+        <div class="text-gray-700 text-lg font-semibold">Memuat aplikasi...</div>
+    </div>
+
+    <!-- Kotak Pesan Umum -->
+    <div id="messageBox" class="fixed top-4 right-4 p-3 rounded-lg shadow-lg hidden z-50"></div>
+
+    <!-- Halaman Login Admin -->
+    <div id="loginPage" class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-sm text-center transform transition-all duration-300 hover:scale-105 hidden">
+        <h2 class="text-3xl font-extrabold text-gray-800 mb-6">Login Admin</h2>
+        <p id="loginError" class="text-red-600 mb-4 font-medium"></p>
+        <div class="mb-4">
           <input
             type="email"
+            id="emailInput"
             placeholder="Email Admin"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200"
+            class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200"
           />
         </div>
-        <div className="mb-6">
+        <div class="mb-6">
           <input
             type="password"
+            id="passwordInput"
             placeholder="Kata Sandi"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200"
+            class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200"
           />
         </div>
         <button
-          onClick={handleLogin}
-          disabled={loading}
-          className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg shadow-md transition-all duration-300 transform hover:-translate-y-1 focus:outline-none focus:ring-4 focus:ring-blue-300 disabled:opacity-50 disabled:cursor-not-allowed"
+          id="loginButton"
+          class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg shadow-md transition-all duration-300 transform hover:-translate-y-1 focus:outline-none focus:ring-4 focus:ring-blue-300 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {loading ? 'Memuat...' : 'Login'}
+          Login
         </button>
-        <p className="mt-6 text-sm text-gray-500">
+        <p class="mt-6 text-sm text-gray-500">
           Untuk demo, gunakan: <br/>
-          Email: <span className="font-semibold">admin@example.com</span> <br/>
-          Pass: <span className="font-semibold">password123</span> <br/>
+          Email: <span class="font-semibold">admin@example.com</span> <br/>
+          Pass: <span class="font-semibold">password123</span> <br/>
           (Pastikan user ini sudah dibuat di Firebase Authentication Anda)
         </p>
-      </div>
     </div>
-  );
-}
 
-// 3. Komponen Dashboard Admin
-function AdminDashboard() {
-  const { user, db, auth, appId } = useAuth();
-  const [attendanceRecords, setAttendanceRecords] = useState([]);
-  const [loadingAttendance, setLoadingAttendance] = useState(true);
-  const [addingRecord, setAddingRecord] = useState(false);
-
-  // Path koleksi untuk data absensi publik
-  // Data disimpan di /artifacts/{appId}/public/data/attendanceRecords
-  const attendanceCollectionPath = `artifacts/${appId}/public/data/attendanceRecords`;
-
-  useEffect(() => {
-    if (!db || !user) {
-        console.log("Database atau User belum siap untuk mengambil data absensi.");
-        return;
-    }
-
-    // Mendapatkan data absensi secara real-time menggunakan onSnapshot
-    const q = query(collection(db, attendanceCollectionPath));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const records = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      // Mengurutkan absensi berdasarkan timestamp terbaru (descending)
-      records.sort((a, b) => b.timestamp.toDate() - a.timestamp.toDate());
-      setAttendanceRecords(records);
-      setLoadingAttendance(false);
-    }, (error) => {
-      console.error("Kesalahan mengambil data absensi:", error);
-      setLoadingAttendance(false);
-    });
-
-    // Cleanup listener saat komponen dilepas untuk mencegah kebocoran memori
-    return () => unsubscribe();
-  }, [db, user, attendanceCollectionPath]); // Dependensi untuk menjalankan ulang efek jika db/user/path berubah
-
-  const handleLogout = async () => {
-    try {
-      if (auth) {
-        await signOut(auth);
-      }
-    } catch (error) {
-      console.error("Kesalahan logout:", error);
-    }
-  };
-
-  const handleAddAttendance = async () => {
-    if (!db || !user) {
-        console.error("Database atau User belum siap untuk menambahkan absensi.");
-        return;
-    }
-    setAddingRecord(true);
-    try {
-      const now = new Date();
-      const newRecord = {
-        userId: user.uid, // Menggunakan UID admin sebagai contoh user yang absen
-        timestamp: Timestamp.fromDate(now), // Timestamp Firebase
-        dateString: now.toLocaleDateString('id-ID', { year: 'numeric', month: 'long', day: 'numeric' }),
-        timeString: now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-        simulatedLocation: "Sore Arabica" // Contoh lokasi
-      };
-      // Menambahkan dokumen baru ke koleksi absensi
-      await addDoc(collection(db, attendanceCollectionPath), newRecord);
-      console.log("Absensi baru ditambahkan!");
-    } catch (error) {
-      console.error("Gagal menambahkan absensi:", error);
-    } finally {
-      setAddingRecord(false);
-    }
-  };
-
-  // Tampilkan loading jika data absensi masih dimuat
-  if (loadingAttendance) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-100">
-        <div className="text-gray-700 text-lg font-semibold">Memuat data absensi...</div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-gray-100 p-4 sm:p-6 lg:p-8">
-      <div className="max-w-4xl mx-auto bg-white rounded-xl shadow-2xl p-6 sm:p-8">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-3xl font-extrabold text-gray-800">Dashboard Admin Absensi</h2>
+    <!-- Dashboard Admin -->
+    <div id="adminDashboard" class="min-h-screen bg-gray-100 p-4 sm:p-6 lg:p-8 hidden w-full">
+      <div class="max-w-4xl mx-auto bg-white rounded-xl shadow-2xl p-6 sm:p-8">
+        <div class="flex justify-between items-center mb-6">
+          <h2 class="text-3xl font-extrabold text-gray-800">Dashboard Admin Absensi</h2>
           <button
-            onClick={handleLogout}
-            className="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200"
+            id="logoutButton"
+            class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200"
           >
             Logout
           </button>
         </div>
 
-        <div className="mb-6 bg-blue-50 p-4 rounded-lg border border-blue-200">
-            <p className="text-blue-700 font-semibold mb-2">
-                User ID Aktif (Admin): <span className="font-bold break-all">{user?.uid || 'Tidak Diketahui'}</span>
+        <div class="mb-6 bg-blue-50 p-4 rounded-lg border border-blue-200">
+            <p class="text-blue-700 font-semibold mb-2">
+                User ID Aktif (Admin): <span id="adminUserIdDisplay" class="font-bold break-all"></span>
             </p>
             <button
-                onClick={handleAddAttendance}
-                disabled={addingRecord}
-                className="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-all duration-300 transform hover:-translate-y-0.5 focus:outline-none focus:ring-4 focus:ring-green-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                id="addAttendanceButton"
+                class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-all duration-300 transform hover:-translate-y-0.5 focus:outline-none focus:ring-4 focus:ring-green-300 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-                {addingRecord ? 'Menambahkan...' : 'Simulasikan Absensi Baru'}
+                Simulasikan Absensi Baru
             </button>
-            <p className="text-sm text-gray-500 mt-2">
+            <p class="text-sm text-gray-500 mt-2">
                 (Ini akan menambahkan catatan absensi dengan UID admin sebagai contoh)
             </p>
         </div>
 
+        <h3 class="text-2xl font-bold text-gray-700 mb-4">Catatan Absensi</h3>
+        <p id="loadingAttendanceMessage" class="text-gray-600 text-lg hidden">Memuat data absensi...</p>
+        <p id="noRecordsMessage" class="text-gray-600 text-lg hidden">Belum ada catatan absensi.</p>
 
-        <h3 className="text-2xl font-bold text-gray-700 mb-4">Catatan Absensi</h3>
-        {attendanceRecords.length === 0 ? (
-          <p className="text-gray-600 text-lg">Belum ada catatan absensi.</p>
-        ) : (
-          <div className="overflow-x-auto rounded-lg border border-gray-200 shadow-sm">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+        <div class="overflow-x-auto rounded-lg border border-gray-200 shadow-sm">
+            <table class="min-w-full divide-y divide-gray-200">
+              <thead class="bg-gray-50">
                 <tr>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Tanggal
                   </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Waktu
                   </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     User ID
                   </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Lokasi
                   </th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {attendanceRecords.map((record) => (
-                  <tr key={record.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {record.dateString}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                      {record.timeString}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 break-all">
-                      {record.userId}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                      {record.simulatedLocation || '-'}
-                    </td>
-                  </tr>
-                ))}
+              <tbody id="attendanceTableBody" class="bg-white divide-y divide-gray-200">
+                <!-- Data absensi akan dimuat di sini oleh JavaScript -->
               </tbody>
             </table>
           </div>
-        )}
       </div>
     </div>
-  );
-}
 
-// 4. Komponen Utama Aplikasi (App)
-export default function App() {
-  return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
-  );
-}
-
-function AppContent() {
-  const { user, loading } = useAuth();
-
-  if (loading) {
-    return null; // Loading state handled by AuthProvider
-  }
-
-  // Jika user terautentikasi (sudah login), tampilkan dashboard
-  if (user) {
-    return <AdminDashboard />;
-  }
-
-  // Jika belum terautentikasi, tampilkan halaman login
-  return <LoginPage />;
-}
+</body>
+</html>
