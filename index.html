@@ -119,13 +119,6 @@
                 const userCredential = await signInWithEmailAndPassword(auth, email, password);
                 currentUser = userCredential.user; // Set currentUser setelah login berhasil
 
-                // --- DEBUGGING LOGS ---
-                console.log("Email yang login (dari Firebase):", currentUser.email);
-                console.log("Email admin yang diharapkan (dari kode):", ADMIN_EMAIL);
-                console.log("Perbandingan (case-insensitive & trim):",
-                                currentUser.email.trim().toLowerCase() === ADMIN_EMAIL.trim().toLowerCase());
-                // --- END DEBUGGING LOGS ---
-
                 // Periksa apakah email yang login adalah email admin yang diharapkan
                 // Gunakan .trim() untuk menghapus spasi di awal/akhir dan .toLowerCase() untuk perbandingan case-insensitive
                 if (currentUser.email.trim().toLowerCase() === ADMIN_EMAIL.trim().toLowerCase()) {
@@ -254,6 +247,14 @@
                                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                                     ${record.simulatedLocation || '-'}
                                 </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                    <button
+                                        data-id="${record.id}"
+                                        class="delete-individual-record-button text-red-600 hover:text-red-900 font-semibold"
+                                    >
+                                        Hapus
+                                    </button>
+                                </td>
                             </tr>
                         `;
                         attendanceTableBody.insertAdjacentHTML('beforeend', row);
@@ -342,6 +343,26 @@
             });
         }
 
+        // Fungsi untuk menangani penghapusan catatan absensi individual
+        async function handleDeleteIndividualRecord(recordId) {
+            showConfirmationModal(`Apakah Anda yakin ingin menghapus catatan absensi ini?`, async () => {
+                // Pastikan user sudah login dan emailnya adalah email admin yang diharapkan
+                if (!db || !currentUser || currentUser.email.trim().toLowerCase() !== ADMIN_EMAIL.trim().toLowerCase()) {
+                    console.error("Akses ditolak atau Database/User belum siap untuk menghapus.");
+                    showMessage('Akses ditolak atau Anda bukan admin yang berwenang.', 'error');
+                    return;
+                }
+
+                try {
+                    await deleteDoc(doc(db, attendanceCollectionPath, recordId));
+                    showMessage('Catatan absensi berhasil dihapus!', 'success');
+                    console.log(`Catatan dengan ID ${recordId} berhasil dihapus.`);
+                } catch (error) {
+                    console.error("Gagal menghapus catatan absensi individual:", error);
+                    showMessage('Gagal menghapus catatan absensi.', 'error');
+                }
+            });
+        }
 
         // Fungsi yang dijalankan setelah seluruh DOM dimuat
         window.onload = async () => {
@@ -365,6 +386,14 @@
             document.getElementById('logoutButton').addEventListener('click', handleLogout);
             document.getElementById('addAttendanceButton').addEventListener('click', handleAddAttendance);
             document.getElementById('deleteByDateButton').addEventListener('click', handleDeleteByDate);
+
+            // Event delegation untuk tombol hapus individual
+            document.getElementById('attendanceTableBody').addEventListener('click', (event) => {
+                if (event.target.classList.contains('delete-individual-record-button')) {
+                    const recordId = event.target.dataset.id;
+                    handleDeleteIndividualRecord(recordId);
+                }
+            });
         };
     </script>
 </head>
@@ -474,6 +503,9 @@
                   </th>
                   <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Lokasi
+                  </th>
+                  <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Aksi
                   </th>
                 </tr>
               </thead>
