@@ -3,18 +3,26 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Absensi Admin Firebase</title>
-    <!-- Tailwind CSS CDN -->
+    <title>Sistem Absensi Admin</title>
+    <!-- Tailwind CSS CDN untuk styling modern dan responsif -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Firebase SDKs via CDN -->
+    <!-- Font Inter untuk tampilan yang bersih -->
+    <style>
+        body {
+            font-family: "Inter", sans-serif;
+        }
+    </style>
+    <!-- Firebase SDKs via CDN - Pastikan versi terbaru digunakan -->
     <script type="module">
+        // Import modul Firebase yang dibutuhkan
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, query, onSnapshot, Timestamp, addDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // Konfigurasi Firebase Anda
+        // Konfigurasi Firebase Anda - PASTIKAN INI BENAR DAN SESUAI DENGAN PROYEK ANDA
+        // Anda bisa mendapatkan ini dari pengaturan proyek Firebase Anda (Project settings -> Your apps -> Firebase SDK snippet -> Config)
         const firebaseConfig = {
-          apiKey: "AIzaSyDVdSSeAlhK1sgjyeSLSdNW3zesatzPKDE",
+          apiKey: "AIzaSyDVdSSeAlhK1sgjyeSLSdNW3zesatzPKDE", // GANTI DENGAN API KEY ASLI ANDA
           authDomain: "data-absen-2025.firebaseapp.com",
           projectId: "data-absen-2025",
           storageBucket: "data-absen-2025.firebasestorage.app",
@@ -23,93 +31,140 @@
           measurementId: "G-H0S4BS3M50"
         };
 
-        const currentAppId = "1:771101147789:web:955049d4939500cfe4d8c4"; // appId dari konfigurasi Anda
+        // Menggunakan appId dari konfigurasi Firebase Anda
+        const currentAppId = firebaseConfig.appId;
 
-        // Inisialisasi Firebase
+        // Inisialisasi aplikasi Firebase
         const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
+        const auth = getAuth(app); // Mendapatkan instance Auth
+        const db = getFirestore(app); // Mendapatkan instance Firestore
 
-        // Variabel global untuk user yang sedang login
+        // Variabel global untuk menyimpan informasi user yang sedang login
         let currentUser = null;
-        // Email admin yang diharapkan (sesuaikan dengan yang Anda buat di Firebase Auth)
-        const ADMIN_EMAIL = 'admin@example.com'; // Ganti dengan email admin Anda yang sebenarnya
 
-        // Path koleksi untuk data absensi publik
-        const attendanceCollectionPath = `artifacts/${currentAppId}/public/data/attendanceRecords`;
+        // Email admin yang diharapkan - PASTIKAN INI SAMA PERSIS DENGAN EMAIL ANDA DI FIREBASE AUTHENTICATION
+        // Contoh: 'Admin1122@gmail.com'
+        const ADMIN_EMAIL = 'Admin1122@gmail.com'; 
 
-        // Fungsi untuk menampilkan pesan (pengganti alert)
+        // Path koleksi Firestore untuk data absensi publik
+        // Menggunakan __app_id jika tersedia, jika tidak, fallback ke currentAppId dari firebaseConfig
+        const appId = typeof __app_id !== 'undefined' ? __app_id : currentAppId;
+        const attendanceCollectionPath = `artifacts/${appId}/public/data/attendanceRecords`;
+
+        // Fungsi untuk menampilkan pesan notifikasi di UI (pengganti alert/confirm)
         function showMessage(message, type = 'info') {
             const messageBox = document.getElementById('messageBox');
             messageBox.textContent = message;
-            messageBox.className = `p-3 rounded-lg text-white font-medium mb-4 ${type === 'error' ? 'bg-red-500' : 'bg-blue-500'}`;
-            messageBox.classList.remove('hidden');
+            // Reset kelas sebelum menambahkan yang baru untuk menghindari penumpukan
+            messageBox.className = `p-3 rounded-lg text-white font-medium mb-4 fixed top-4 right-4 shadow-lg z-50`; 
+            messageBox.classList.remove('hidden'); // Pastikan tidak tersembunyi
+            if (type === 'error') {
+                messageBox.classList.add('bg-red-500');
+            } else if (type === 'success') {
+                messageBox.classList.add('bg-green-500');
+            } else {
+                messageBox.classList.add('bg-blue-500');
+            }
+            
+            // Sembunyikan pesan setelah 5 detik
             setTimeout(() => {
                 messageBox.classList.add('hidden');
-            }, 5000); // Sembunyikan setelah 5 detik
+            }, 5000); 
         }
 
-        // Fungsi untuk merender halaman login
+        // Fungsi untuk menampilkan halaman login
         function renderLoginPage() {
             document.getElementById('loadingScreen').classList.add('hidden');
             document.getElementById('loginPage').classList.remove('hidden');
             document.getElementById('adminDashboard').classList.add('hidden');
+            // Bersihkan input login setiap kali halaman login dirender
+            document.getElementById('emailInput').value = '';
+            document.getElementById('passwordInput').value = '';
+            document.getElementById('loginError').textContent = '';
         }
 
-        // Fungsi untuk merender dashboard admin
+        // Fungsi untuk menampilkan dashboard admin
         function renderAdminDashboard() {
             document.getElementById('loadingScreen').classList.add('hidden');
             document.getElementById('loginPage').classList.add('hidden');
             document.getElementById('adminDashboard').classList.remove('hidden');
             
-            // Tampilkan UID user yang sedang login
+            // Tampilkan UID user admin yang sedang login
             document.getElementById('adminUserIdDisplay').textContent = currentUser?.uid || 'Tidak Diketahui';
             
-            // Ambil dan tampilkan data absensi
+            // Muat dan tampilkan data absensi di tabel
             loadAttendanceRecords();
         }
 
-        // Fungsi untuk menangani login admin
+        // Fungsi untuk menangani proses login admin
         async function handleLogin() {
             const email = document.getElementById('emailInput').value;
             const password = document.getElementById('passwordInput').value;
             const loginError = document.getElementById('loginError');
             const loginButton = document.getElementById('loginButton');
 
-            loginError.textContent = ''; // Bersihkan pesan error sebelumnya
+            loginError.textContent = ''; 
             loginButton.disabled = true;
             loginButton.textContent = 'Memuat...';
 
             try {
                 const userCredential = await signInWithEmailAndPassword(auth, email, password);
-                // Jika login berhasil, onAuthStateChanged akan menangani rendering dashboard
-                // Tidak perlu render di sini karena onAuthStateChanged akan dipicu
+                currentUser = userCredential.user; // Set currentUser setelah login berhasil
+                
+                // --- DEBUGGING LOGS ---
+                console.log("Email yang login (dari Firebase):", currentUser.email);
+                console.log("Email admin yang diharapkan (dari kode):", ADMIN_EMAIL);
+                console.log("Perbandingan (case-insensitive & trim):", 
+                            currentUser.email.trim().toLowerCase() === ADMIN_EMAIL.trim().toLowerCase());
+                // --- END DEBUGGING LOGS ---
+
+                // Periksa apakah email yang login adalah email admin yang diharapkan
+                // Gunakan .trim() untuk menghapus spasi di awal/akhir dan .toLowerCase() untuk perbandingan case-insensitive
+                if (currentUser.email.trim().toLowerCase() === ADMIN_EMAIL.trim().toLowerCase()) {
+                    renderAdminDashboard(); // Jika admin, tampilkan dashboard
+                    showMessage('Login berhasil!', 'success'); 
+                } else {
+                    // Jika bukan admin, paksa logout dan tampilkan pesan
+                    await signOut(auth);
+                    currentUser = null; // Pastikan currentUser direset
+                    renderLoginPage();
+                    showMessage('Akses ditolak. Harap login dengan akun admin yang benar.', 'error');
+                }
             } catch (error) {
-                console.error("Kesalahan login:", error.message);
-                loginError.textContent = 'Gagal login. Periksa email dan kata sandi Anda.';
-                showMessage('Gagal login. Periksa email dan kata sandi Anda.', 'error');
+                console.error("Kesalahan login:", error.code, error.message); // Log error code untuk debugging lebih lanjut
+                let errorMessage = 'Gagal login. Periksa email dan kata sandi Anda.';
+                if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
+                    errorMessage = 'Email atau kata sandi salah.';
+                } else if (error.code === 'auth/invalid-email') {
+                    errorMessage = 'Format email tidak valid.';
+                }
+                loginError.textContent = errorMessage;
+                showMessage(errorMessage, 'error');
             } finally {
                 loginButton.disabled = false;
                 loginButton.textContent = 'Login';
             }
         }
 
-        // Fungsi untuk menangani logout
+        // Fungsi untuk menangani proses logout
         async function handleLogout() {
             try {
-                await signOut(auth);
-                // onAuthStateChanged akan menangani rendering halaman login
+                await signOut(auth); // Melakukan logout dari Firebase
+                currentUser = null; // Reset currentUser
+                renderLoginPage(); // Kembali ke halaman login
+                showMessage('Anda telah logout.', 'info');
             } catch (error) {
                 console.error("Kesalahan logout:", error);
                 showMessage('Gagal logout.', 'error');
             }
         }
 
-        // Fungsi untuk menambahkan catatan absensi baru (simulasi)
+        // Fungsi untuk menambahkan catatan absensi baru (simulasi absensi)
         async function handleAddAttendance() {
-            if (!db || !currentUser) {
-                console.error("Database atau User belum siap untuk menambahkan absensi.");
-                showMessage('Gagal menambahkan absensi: Database atau user belum siap.', 'error');
+            // Pastikan user sudah login dan emailnya adalah email admin yang diharapkan
+            if (!db || !currentUser || currentUser.email.trim().toLowerCase() !== ADMIN_EMAIL.trim().toLowerCase()) { 
+                console.error("Akses ditolak atau Database/User belum siap.");
+                showMessage('Akses ditolak atau Anda bukan admin yang berwenang.', 'error');
                 return;
             }
             const addAttendanceButton = document.getElementById('addAttendanceButton');
@@ -119,15 +174,15 @@
             try {
                 const now = new Date();
                 const newRecord = {
-                    userId: currentUser.uid, // Menggunakan UID admin sebagai contoh user yang absen
-                    timestamp: Timestamp.fromDate(now), // Timestamp Firebase
+                    userId: currentUser.uid, 
+                    timestamp: Timestamp.fromDate(now),
                     dateString: now.toLocaleDateString('id-ID', { year: 'numeric', month: 'long', day: 'numeric' }),
                     timeString: now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-                    simulatedLocation: "Sore Arabica" // Contoh lokasi
+                    simulatedLocation: "Sore Arabica"
                 };
                 await addDoc(collection(db, attendanceCollectionPath), newRecord);
                 console.log("Absensi baru ditambahkan!");
-                showMessage('Absensi baru berhasil ditambahkan!', 'info');
+                showMessage('Absensi baru berhasil ditambahkan!', 'success'); 
             } catch (error) {
                 console.error("Gagal menambahkan absensi:", error);
                 showMessage('Gagal menambahkan absensi.', 'error');
@@ -137,25 +192,29 @@
             }
         }
 
-        // Fungsi untuk memuat dan menampilkan catatan absensi
+        // Fungsi untuk memuat dan menampilkan catatan absensi dari Firestore secara real-time
         function loadAttendanceRecords() {
             const attendanceTableBody = document.getElementById('attendanceTableBody');
             const noRecordsMessage = document.getElementById('noRecordsMessage');
             const loadingAttendanceMessage = document.getElementById('loadingAttendanceMessage');
 
             loadingAttendanceMessage.classList.remove('hidden');
-            attendanceTableBody.innerHTML = ''; // Bersihkan tabel
+            attendanceTableBody.innerHTML = ''; 
 
-            if (!db || !currentUser) {
-                console.error("Database atau user belum siap untuk memuat catatan absensi.");
+            // Pastikan user sudah login dan emailnya adalah email admin yang diharapkan
+            if (!db || !currentUser || currentUser.email.trim().toLowerCase() !== ADMIN_EMAIL.trim().toLowerCase()) { 
+                console.error("Akses ditolak atau Database/User belum siap untuk memuat catatan absensi.");
                 loadingAttendanceMessage.classList.add('hidden');
                 noRecordsMessage.classList.remove('hidden');
-                noRecordsMessage.textContent = 'Gagal memuat catatan absensi.';
+                noRecordsMessage.textContent = 'Akses ditolak atau gagal memuat catatan absensi.';
                 return;
             }
 
             const q = query(collection(db, attendanceCollectionPath));
-            onSnapshot(q, (snapshot) => {
+            
+            // Set up listener real-time menggunakan onSnapshot
+            // Penting: onSnapshot mengembalikan fungsi unsubscribe. Simpan ini jika Anda perlu menghentikan mendengarkan.
+            const unsubscribe = onSnapshot(q, (snapshot) => {
                 const records = [];
                 snapshot.forEach(doc => {
                     records.push({
@@ -163,10 +222,10 @@
                         ...doc.data()
                     });
                 });
-                // Urutkan berdasarkan timestamp terbaru
+                // Urutkan catatan berdasarkan timestamp terbaru di atas
                 records.sort((a, b) => b.timestamp.toDate() - a.timestamp.toDate());
 
-                attendanceTableBody.innerHTML = ''; // Bersihkan lagi sebelum mengisi
+                attendanceTableBody.innerHTML = ''; 
                 if (records.length === 0) {
                     noRecordsMessage.classList.remove('hidden');
                     noRecordsMessage.textContent = 'Belum ada catatan absensi.';
@@ -200,58 +259,43 @@
                 noRecordsMessage.textContent = 'Gagal memuat data absensi secara real-time.';
                 showMessage('Gagal memuat data absensi secara real-time.', 'error');
             });
+
+            // Mengembalikan fungsi unsubscribe agar bisa dipanggil nanti jika diperlukan
+            return unsubscribe;
         }
 
-        // Listener perubahan status otentikasi Firebase
-        onAuthStateChanged(auth, async (user) => {
-            currentUser = user; // Perbarui variabel global currentUser
-            if (user) {
-                // Jika ada user yang login (termasuk anonim atau dengan token kustom)
-                // Periksa apakah user ini adalah user admin yang sebenarnya
-                if (user.email === ADMIN_EMAIL && !user.isAnonymous) {
-                    renderAdminDashboard();
-                } else {
-                    // Jika bukan user admin yang benar (misal anonim atau email lain),
-                    // paksa logout dan tampilkan halaman login.
-                    await signOut(auth);
-                    renderLoginPage();
-                    showMessage('Sesi otomatis diakhiri. Harap login dengan akun admin.', 'info');
-                }
-            } else {
-                // Jika tidak ada user yang login, tampilkan halaman login
-                renderLoginPage();
-            }
-        });
-
-        // Inisialisasi aplikasi saat DOM dimuat
+        // Fungsi yang dijalankan setelah seluruh DOM dimuat
         window.onload = async () => {
-            document.getElementById('loadingScreen').classList.remove('hidden');
+            document.getElementById('loadingScreen').classList.remove('hidden'); // Tampilkan loading awal
 
-            // Hapus bagian signInWithCustomToken atau signInAnonymously di onload
-            // agar halaman login selalu muncul pertama kali.
-            // onAuthStateChanged akan menangani status otentikasi setelahnya.
+            // LANGKAH KRUSIAL: Paksa logout semua sesi yang mungkin aktif di awal
+            // Ini akan memastikan tidak ada sesi "hantu" yang mengganggu.
+            try {
+                await signOut(auth);
+                currentUser = null; // Pastikan currentUser direset setelah logout
+                console.log("Sesi sebelumnya berhasil di-logout.");
+            } catch (e) {
+                console.warn("Tidak ada sesi aktif untuk di-logout atau error saat logout:", e);
+            }
+            
+            // Selalu tampilkan halaman login terlebih dahulu
+            renderLoginPage();
 
-            // Tambahkan event listener setelah elemen ada di DOM
+            // Tambahkan event listener untuk tombol-tombol setelah DOM siap
             document.getElementById('loginButton').addEventListener('click', handleLogin);
             document.getElementById('logoutButton').addEventListener('click', handleLogout);
             document.getElementById('addAttendanceButton').addEventListener('click', handleAddAttendance);
         };
     </script>
-    <style>
-        /* Custom font for a clean look */
-        body {
-            font-family: "Inter", sans-serif;
-        }
-    </style>
 </head>
 <body class="bg-gradient-to-br from-blue-500 to-purple-600 min-h-screen flex items-center justify-center p-4">
 
-    <!-- Layar Loading Awal -->
+    <!-- Layar Loading Awal - Muncul saat aplikasi pertama kali dimuat -->
     <div id="loadingScreen" class="absolute inset-0 flex items-center justify-center bg-gray-100 z-50 hidden">
         <div class="text-gray-700 text-lg font-semibold">Memuat aplikasi...</div>
     </div>
 
-    <!-- Kotak Pesan Umum -->
+    <!-- Kotak Pesan Notifikasi - Untuk pesan info/error -->
     <div id="messageBox" class="fixed top-4 right-4 p-3 rounded-lg shadow-lg hidden z-50"></div>
 
     <!-- Halaman Login Admin -->
@@ -280,12 +324,6 @@
         >
           Login
         </button>
-        <p class="mt-6 text-sm text-gray-500">
-          Untuk demo, gunakan: <br/>
-          Email: <span class="font-semibold">admin@example.com</span> <br/>
-          Pass: <span class="font-semibold">password123</span> <br/>
-          (Pastikan user ini sudah dibuat di Firebase Authentication Anda)
-        </p>
     </div>
 
     <!-- Dashboard Admin -->
