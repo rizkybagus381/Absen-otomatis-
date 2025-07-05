@@ -32,6 +32,8 @@
 
         // Variabel global untuk user yang sedang login
         let currentUser = null;
+        // Email admin yang diharapkan (sesuaikan dengan yang Anda buat di Firebase Auth)
+        const ADMIN_EMAIL = 'admin@example.com'; // Ganti dengan email admin Anda yang sebenarnya
 
         // Path koleksi untuk data absensi publik
         const attendanceCollectionPath = `artifacts/${currentAppId}/public/data/attendanceRecords`;
@@ -79,8 +81,9 @@
             loginButton.textContent = 'Memuat...';
 
             try {
-                await signInWithEmailAndPassword(auth, email, password);
-                // onAuthStateChanged akan menangani rendering dashboard
+                const userCredential = await signInWithEmailAndPassword(auth, email, password);
+                // Jika login berhasil, onAuthStateChanged akan menangani rendering dashboard
+                // Tidak perlu render di sini karena onAuthStateChanged akan dipicu
             } catch (error) {
                 console.error("Kesalahan login:", error.message);
                 loginError.textContent = 'Gagal login. Periksa email dan kata sandi Anda.';
@@ -204,10 +207,16 @@
             currentUser = user; // Perbarui variabel global currentUser
             if (user) {
                 // Jika ada user yang login (termasuk anonim atau dengan token kustom)
-                // Kita perlu memastikan ini adalah user admin yang kita inginkan
-                // Untuk demo ini, kita akan langsung menampilkan dashboard jika ada user
-                // Dalam aplikasi nyata, Anda mungkin perlu memeriksa role/klaim khusus
-                renderAdminDashboard();
+                // Periksa apakah user ini adalah user admin yang sebenarnya
+                if (user.email === ADMIN_EMAIL && !user.isAnonymous) {
+                    renderAdminDashboard();
+                } else {
+                    // Jika bukan user admin yang benar (misal anonim atau email lain),
+                    // paksa logout dan tampilkan halaman login.
+                    await signOut(auth);
+                    renderLoginPage();
+                    showMessage('Sesi otomatis diakhiri. Harap login dengan akun admin.', 'info');
+                }
             } else {
                 // Jika tidak ada user yang login, tampilkan halaman login
                 renderLoginPage();
@@ -218,23 +227,9 @@
         window.onload = async () => {
             document.getElementById('loadingScreen').classList.remove('hidden');
 
-            // Coba otentikasi awal dengan token kustom jika tersedia
-            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                try {
-                    await signInWithCustomToken(auth, __initial_auth_token);
-                } catch (error) {
-                    console.error("Gagal otentikasi dengan token kustom:", error);
-                    // Jika gagal, biarkan onAuthStateChanged mengarahkan ke login
-                }
-            } else {
-                // Jika tidak ada token kustom, coba sign in anonim
-                try {
-                    await signInAnonymously(auth);
-                } catch (error) {
-                    console.error("Gagal sign in anonim:", error);
-                    // Biarkan onAuthStateChanged mengarahkan ke login
-                }
-            }
+            // Hapus bagian signInWithCustomToken atau signInAnonymously di onload
+            // agar halaman login selalu muncul pertama kali.
+            // onAuthStateChanged akan menangani status otentikasi setelahnya.
 
             // Tambahkan event listener setelah elemen ada di DOM
             document.getElementById('loginButton').addEventListener('click', handleLogin);
